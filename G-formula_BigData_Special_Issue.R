@@ -53,7 +53,6 @@ formula.soc_score_lfbr_disvt <- as.formula(sub('outcome', 'soc_score_lfbr_disvt'
 #-------------------------------
 # CREATE ARRAYS TO STORE VALUES
 #-------------------------------
-setwd("H:/Health Inequality LBO/Crime/Environment") # Set working directory
 
 bssize <- 250 # Bootstrap iterations
 msize <- 30 # Monte Carlo iterations
