@@ -21,37 +21,10 @@
 library(dplyr)
 
 # Set working directory 
-setwd("H:/Health Inequality LBO/Leefbaarheid")
-
-# Load leefbaarometer social dimension
-load("H:/Health Inequality LBO/Leefbaarheid/Leefbaarometer/Leefbaarometer3_fys_soc.RData")
+setwd("yourWorkDirectory")
 
 # Load data
-load(file="H:/Health Inequality LBO/Crime/Environment/PRN_quintiles_whole.RData")
-PRN_dummy <- prn_pc_class_com
-
-# Merge PRN and social scores
-PRN_dummy1 <- merge(PRN_dummy, soc, by.x = "POSTCODE.FIN", by.y = "PC4", all.x = T)
-
-# Keep relevant variables
-PRN_dummy1 <- PRN_dummy1 %>% dplyr::select(RINPersoon_moeder, RINPersoon_kind, JAAR, POSTCODE.FIN, parity, LFT_cat_3, cat_std.perc.disp.inc.Q, LMH_edu_level.R, ETNGRP2, SGA, PRETERM, LBW, SCP.q.r, Q_NWestM, Q.WOZ, oad_pc4_new_q_year, soc.2014, soc.2018, soc.2014_q, soc.2018_q, soc.2014_dsv, soc.2018_dsv, Std.disp.income.H.Final)
-
-# Assign social scores: assign then classify
-PRN_dummy1$soc_score_lfbr <- case_when(PRN_dummy1$JAAR <= 2015 ~ PRN_dummy1$soc.2014, 
-                                  PRN_dummy1$JAAR > 2014 ~ PRN_dummy1$soc.2018)
-
-PRN_dummy1$soc_score_lfbr_q <- ntile(PRN_dummy1$soc_score_lfbr, 5) # make quintiles: 1= lowes, 5= highest
-PRN_dummy1$soc_score_lfbr_disvt <- ifelse(PRN_dummy1$soc_score_lfbr_q==1, 1,0) # classify as disadvataged if in q1
-
-# Check frequencies and proportions 
-prop.table(table(PRN_dummy1$soc_score_lfbr_disvt))*100 # assign scores to all and then classify
-
-# Remove redundant datasets 
-remove(prn_pc_class_com, PRN_dummy)
-gc()
-
-# Create variables for Disadvantaged SES
-PRN_dummy1$ses_disvt <- ifelse(PRN_dummy1$SCP.q.r==5, 1,0) # classify as disadvataged if in q5 (here the qs are reversed)
+load(file="your_file")
 
 # Expit function to transform predictions
 expit <- function (x) { exp(x) / (1 + exp(x))}
@@ -82,8 +55,8 @@ formula.soc_score_lfbr_disvt <- as.formula(sub('outcome', 'soc_score_lfbr_disvt'
 #-------------------------------
 setwd("H:/Health Inequality LBO/Crime/Environment") # Set working directory
 
-bssize <- 5 # Bootstrap iterations
-msize <- 5 # Monte Carlo iterations
+bssize <- 250 # Bootstrap iterations
+msize <- 30 # Monte Carlo iterations
 nvar <- 2 # 1 mediator and 1 outcome variable.
 ngroups <- 1 # If set to 1, it creates a matrix for the population.
 # If interested in stratifying the analysis this can be set to
@@ -303,10 +276,10 @@ system.time(for(bs in 1:bssize) { # system.time to obtain how long does it take 
     
     # Relative effects can be calculated here as done below for the TE, 
     # else, they can be calculated from the averaged bootstrap outcome 
-    # means as 1- (CF2/CF1) *100. This value is interpreted as the percentage 
+    # means as 1- (CF2/CF1)*100. This value is interpreted as the percentage 
     # change in SGA due to the hypothetical improvement in SES from
     # disadvantaged to advantaged. A negative number refers to a reduction in SGA.
-    te.rel.bs.array[bs,v,1] <- 1-(mean(cf.array2[,v,1])/mean(cf.array1[,v,1]))
+    te.rel.bs.array[bs,v,1] <- (1-(mean(cf.array2[,v,1])/mean(cf.array1[,v,1])))*100
   }
   
   ###############
@@ -344,47 +317,6 @@ system.time(for(bs in 1:bssize) { # system.time to obtain how long does it take 
 ) #system time
 
 
-
-
-#################
-# Check results 
-#################
-setwd("H:/Health Inequality LBO/Leefbaarheid/Environment")
-save(bs.nc.array, te.bs.array, te.rel.bs.array, bs.tde.array, bs.ie.array, bs.ie.array1, bs.perc.med.array, bs.cf.array1, bs.cf.array2, file="BS_SGA_LBR_r_2.RData")
-
-# NC and CF1, CF2
-colMeans(bs.nc.array)
-colMeans(bs.cf.array1)
-colMeans(bs.cf.array2)
-
-
-
-# Total effect 
-colMeans(te.bs.array)
-quantile(te.bs.array[,1,1], probs = c(0.25,0.75)) # Obtain 25% and 75%
-apply(te.bs.array, 2, quantile, probs = c(0.25,0.75)) # Obtain 25% and 75%, 2 refers to column.
-
-
-# Total direct effect
-colMeans(bs.tde.array)
-
-options(scipen = 999)
-TDE <- colMeans(bs.tde.array)
-
-
-# Indirect effect
-colMeans(bs.ie.array) 
-quantile(bs.ie.array, probs = c(0.25,0.75)) 
-
-# Percentage mediated
-colMeans(bs.perc.med.array)*100
-quantile(bs.perc.med.array[,3,1], probs = c(0.25,0.75)) # Obtain 25% and 75%
-
-options(scipen = 999)
-
-
-
-
 ##################
 # CHECK RESULTS 
 ##################
@@ -392,7 +324,6 @@ options(scipen = 999)
 # Counterfactual scenarios means
 CF1 <- data.frame(CF1.mean = colMeans(bs.cf.array1, na.rm = T))
 CF2 <- data.frame(CF2.mean = colMeans(bs.cf.array2, na.rm = T))
-
 
 ### Absolute effects: TE, NDE, NIE ###
 
