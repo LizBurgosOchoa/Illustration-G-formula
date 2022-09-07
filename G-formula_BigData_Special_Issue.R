@@ -333,8 +333,8 @@ colnames(te) <- names.te
 # Mean value
 te.mean <- data.frame(te.mean = (colMeans(te, na.rm = T)))
 # 95% CI
-te.low <- data.frame(te.low = apply(X= te, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.25))})) # Obtain 25% 
-te.up <- data.frame(te.up = apply(X= te, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.75))}))# obtain 75%
+te.low <- data.frame(te.low = apply(X= te, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.025))})) 
+te.up <- data.frame(te.up = apply(X= te, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.975))}))
 # Bind columns
 te_m_CI <- data.frame(cbind(te.mean, te.low, te.up))
 
@@ -345,8 +345,8 @@ row.names(tde) <- names.tde
 # Mean value
 tde.mean <- data.frame(tde.mean = (colMeans(bs.tde.array))) 
 # 95% CI
-tde.low <- data.frame(tde.low = apply(X = bs.tde.array, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.25))})) # Obtain 25% 
-tde.up <- data.frame(tde.up = apply(X = bs.tde.array, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.75))}))# obtain 75%
+tde.low <- data.frame(tde.low = apply(X = bs.tde.array, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.025))}))  
+tde.up <- data.frame(tde.up = apply(X = bs.tde.array, MARGIN = 2, FUN=function(x) {(quantile(x, probs = 0.975))}))
 # Bind columns
 tde_m_CI <- data.frame(cbind(tde.mean, tde.low, tde.up))
 row.names(tde_m_CI) <- names.tde
@@ -356,8 +356,8 @@ names.tie <- "SGA"
 # Mean value
 tie.mean <- data.frame(tie.mean = round(colMeans(bs.ie.array), digits = 7)) 
 # 95% CI
-tie.low <- data.frame(tie.low = apply(X = bs.ie.array, MARGIN = 2, FUN=function(x) {round(quantile(x, probs = 0.25), digits = 7)})) # Obtain 25% 
-tie.up <- data.frame(tie.up = apply(X = bs.ie.array, MARGIN = 2, FUN=function(x) {round(quantile(x, probs = 0.75), digits = 7)}))# obtain 75%
+tie.low <- data.frame(tie.low = apply(X = bs.ie.array, MARGIN = 2, FUN=function(x) {round(quantile(x, probs = 0.025), digits = 7)})) 
+tie.up <- data.frame(tie.up = apply(X = bs.ie.array, MARGIN = 2, FUN=function(x) {round(quantile(x, probs = 0.975), digits = 7)}))
 # Bind columns
 tie_m_CI <- data.frame(cbind(tie.mean, tie.low, tie.up))
 rownames(tie_m_CI) <- names.tie
