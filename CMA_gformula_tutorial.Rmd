@@ -1,0 +1,342 @@
+---
+title: "Causal Mediation with the g‑formula in R. A  step-by-step tutorial"
+output: html_notebook
+bssize: 200          # bootstrap iterations (raise ≥ 500 for final runs)
+msize: 100           # Monte Carlo iterations per bootstrap (raise for stability)
+seed: 20250829       # global seed for reproducibility
+---
+
+> > **Introduction**
+>
+> This notebook shows, step by step, how to implement **causal mediation analysis (CMA)** with the **mediational g‑formula** in R. The g‑formula (also called g‑computation) was introduced by James Robins and is grounded in the potential outcomes (PO) framework. Its aim is to estimate counterfactual contrasts by simulating what would happen under interventions on exposures and mediators, using fitted regression models. In the mediation setting, the goal is to quantify how much of the effect of an exposure on an outcome goes through another factor (the mediator).
+>
+> In this tutorial we mimic the workflow in Burgos Ochoa (2023) <https://doi.org/10.1111/ppe.12954>. In that study, we investigated the effect of neighbourhood socioeconomic status (SES, exposure) on small‑for‑gestational‑age (SGA, outcome) and the role of the neighbourhood social environment as a potential mediator.
+>
+> We use g‑computation to decompose the **Total Effect (TE)** into the **Natural Direct Effect (NDE)** (the part not through the mediator) and the **Natural Indirect Effect (NIE)** (the part through the mediator). The steps in the g‑computation are:
+>
+> 1.  Specify and fit suitable parametric models for the mediator and the outcome.
+> 2.  Simulate data under the natural course (NC).
+> 3.  Simulate data under counterfactual interventions (all exposed vs all unexposed).
+> 4.  Simulate the mediation scenario (exposure fixed, mediator as under the opposite exposure).
+> 5.  Average over Monte Carlo draws and summarise.
+> 6.  Bootstrap to quantify uncertainty.
+>
+> **Who it's for.** Researchers familiar with R and advanced regression modelling who want a practical guide to apply CMA with the g‑formula.
+
+------------------------------------------------------------------------
+
+## 0) Setup
+
+```{r}
+#| label: setup
+# Packages
+suppressPackageStartupMessages({
+  library(dplyr)
+})
+# The cfdecomp package provides a handy cluster bootstrap helper used below.
+# If you don't have it installed yet, uncomment the next line:
+# remotes::install_github("mjhbijlsma/cfdecomp")
+library(cfdecomp)
+
+set.seed(params$seed)
+
+# Helper: inverse logit
+expit <- function(x) exp(x) / (1 + exp(x))
+```
+
+------------------------------------------------------------------------
+
+## 1) Data
+
+In this example we assume the following variables:
+
+-   **Exposure** `ses_disvt` (binary: 1 = disadvantaged, 0 = non‑disadvantaged)
+
+-   **Mediator** `soc_score_lfbr_disvt` (binary: 1 = disadvantaged social environment quintile, else 0)
+
+-   **Outcome** `SGA` (binary)
+
+-   Confounders: `JAAR`, `parity`, `ETNGRP2`, `cat_std.perc.disp.inc.Q`, `LMH_edu_level.R`, `LFT_cat_3`, `Q_NWestM`, `Q.WOZ`
+
+-   Optional clustering variable: `POSTCODE.FIN` (used for cluster bootstrap)
+
+```{r}
+#| label: load-data
+# Replace this block with your own data-loading code.
+# Example placeholders (commented out). Keep your original names.
+
+# setwd("path/to/your/project")
+# load("path/to/Leefbaarometer3_fys_soc.RData")   # provides `soc` with PC4-level scores
+# load("path/to/PRN_quintiles_whole.RData")       # provides `prn_pc_class_com`
+# PRN_dummy <- prn_pc_class_com
+# PRN_dummy1 <- merge(PRN_dummy, soc, by.x = "POSTCODE.FIN", by.y = "PC4", all.x = TRUE)
+
+# Example variable preparation (keep names):
+# PRN_dummy1 <- PRN_dummy1 %>% dplyr::select(RINPersoon_moeder, RINPersoon_kind, JAAR, POSTCODE.FIN,
+#   parity, LFT_cat_3, cat_std.perc.disp.inc.Q, LMH_edu_level.R, ETNGRP2,
+#   SGA, PRETERM, LBW, SCP.q.r, Q_NWestM, Q.WOZ, oad_pc4_new_q_year,
+#   soc.2014, soc.2018, soc.2014_q, soc.2018_q, soc.2014_dsv, soc.2018_dsv,
+#   Std.disp.income.H.Final)
+
+# # Assign social scores by year, make quintiles, and classify disadvantaged (1) if Q1
+# PRN_dummy1$soc_score_lfbr <- dplyr::case_when(
+#   PRN_dummy1$JAAR <= 2015 ~ PRN_dummy1$soc.2014,
+#   PRN_dummy1$JAAR >  2014 ~ PRN_dummy1$soc.2018
+# )
+# PRN_dummy1$soc_score_lfbr_q <- dplyr::ntile(PRN_dummy1$soc_score_lfbr, 5)
+# PRN_dummy1$soc_score_lfbr_disvt <- ifelse(PRN_dummy1$soc_score_lfbr_q == 1, 1, 0)
+
+# # Exposure: disadvantaged if SCP quintile indicates the lowest SES (note: here scale is reversed)
+# PRN_dummy1$ses_disvt <- ifelse(PRN_dummy1$SCP.q.r == 5, 1, 0)
+
+# For this tutorial run, we expect your data frame to be named PRN_dummy1
+# and already contain the variables listed above.
+
+# stopifnot(exists("PRN_dummy1"))
+```
+
+*Tip:* If you don’t have clustering, you can still run everything. The cluster bootstrap will simply resample rows.
+
+------------------------------------------------------------------------
+
+## 2) Specify parametric models
+
+These formulas encode how the mediator and outcome depend on exposure and confounders.
+
+```{r}
+#| label: formulas
+formula.mediator <- soc_score_lfbr_disvt ~ ses_disvt + factor(JAAR) + parity + ETNGRP2 +
+  factor(cat_std.perc.disp.inc.Q) + factor(LMH_edu_level.R) + factor(LFT_cat_3) +
+  factor(Q_NWestM) + factor(Q.WOZ)
+
+formula.outcome <- SGA ~ ses_disvt + soc_score_lfbr_disvt + factor(JAAR) + parity + ETNGRP2 +
+  factor(cat_std.perc.disp.inc.Q) + factor(LMH_edu_level.R) + factor(LFT_cat_3) +
+  factor(Q_NWestM) + factor(Q.WOZ)
+```
+
+------------------------------------------------------------------------
+
+## 3) Create arrays to store analysis results
+
+We use arrays to store Monte Carlo (MC) results per bootstrap.
+
+```{r}
+#| label: arrays
+bssize <- params$bssize
+msize  <- params$msize
+nvar   <- 2     # 1 outcome (SGA), 1 mediator (soc_score_lfbr_disvt)
+ngroups <- 1
+med.scenarios <- 1  # one mediation scenario
+
+# Natural course (NC) and counterfactual arrays, dims: [msize, nvar, ngroups]
+nc.array     <- array(NA_real_, dim = c(msize, nvar, ngroups))
+cf.array1    <- array(NA_real_, dim = c(msize, nvar, ngroups))  # CF1: SES=1 (all disadvantaged)
+cf.array2    <- array(NA_real_, dim = c(msize, nvar, ngroups))  # CF2: SES=0 (all non‑disadvantaged)
+
+# Mediation scenario means, dims: [msize, outcomes*med.scenarios, ngroups]
+outcomes <- 1
+rows <- outcomes * med.scenarios
+med.array <- array(NA_real_, dim = c(msize, rows, ngroups))
+
+# Bootstrap storage
+bs.nc.array   <- array(NA_real_, dim = c(bssize, nvar, ngroups))
+bs.cf.array1  <- array(NA_real_, dim = c(bssize, nvar, ngroups))
+bs.cf.array2  <- array(NA_real_, dim = c(bssize, nvar, ngroups))
+bs.tde.array  <- array(NA_real_, dim = c(bssize, rows, ngroups))   # NDE (a.k.a. total direct effect here)
+bs.ie.array   <- array(NA_real_, dim = c(bssize, rows, ngroups))   # NIE
+bs.perc.med.array <- array(NA_real_, dim = c(bssize, rows, ngroups))
+
+te.bs.array      <- array(NA_real_, dim = c(bssize, nvar, ngroups))   # TE (absolute)
+te.rel.bs.array  <- array(NA_real_, dim = c(bssize, nvar, ngroups))   # TE (relative)
+```
+
+------------------------------------------------------------------------
+
+## 4) The mediational g‑formula (simulation + bootstrap)
+
+At each bootstrap iteration: 1. **Resample** rows or clusters (if `POSTCODE.FIN` exists). 2. **Fit** parametric models for mediator and outcome on the bootstrap sample. 3. **Simulate** four scenarios with MC draws: - **NC** (natural course): simulate mediator and outcome as observed. - **CF1**: set all `ses_disvt = 1` (disadvantaged); simulate mediator and outcome. - **CF2**: set all `ses_disvt = 0` (non‑disadvantaged); simulate mediator and outcome. - **Mediation** (`x* M_x=0`): set `ses_disvt = 1` but take mediator values as if `ses_disvt = 0`. 4. **Save means** across individuals; average over MC loops to stabilize estimates. 5. **Compute effects**: `TE = CF2 − CF1`, `NDE = CF2 − Mediation`, `NIE = Mediation − CF1`.
+
+```{r}
+#| label: gformula
+#| message: false
+#| warning: false
+
+# Ensure data frame exists
+if (!exists("PRN_dummy1")) {
+  stop("Data frame 'PRN_dummy1' not found. Load your data in the 'load-data' chunk.")
+}
+
+# Helper: cluster or row bootstrap resample
+do_resample <- function(data) {
+  if ("POSTCODE.FIN" %in% names(data)) {
+    cluster.resample(data = data, cluster.name = "POSTCODE.FIN")
+  } else {
+    data[sample.int(nrow(data), nrow(data), replace = TRUE), ]
+  }
+}
+
+system.time({
+  for (bs in seq_len(bssize)) {
+    # 1) Bootstrap sample
+    sample.dat <- do_resample(PRN_dummy1)
+    n <- nrow(sample.dat)
+
+    # 2) Fit mediator and outcome models
+    fit.mediator <- glm(formula.mediator, family = binomial(), data = sample.dat, model = FALSE, y = FALSE)
+    fit.outcome  <- glm(formula.outcome,  family = binomial(), data = sample.dat, model = FALSE, y = FALSE)
+
+    # 3) Monte Carlo loops
+    for (m in seq_len(msize)) {
+      # --- Natural Course (NC) ---
+      sample.xMx <- sample.dat
+      pM <- predict(fit.mediator, newdata = sample.xMx)
+      sample.xMx$soc_score_lfbr_disvt <- rbinom(n, 1, expit(pM))
+      pY <- predict(fit.outcome, newdata = sample.xMx)
+      sample.xMx$SGA <- rbinom(n, 1, expit(pY))
+
+      # --- CF1: SES = 1 for all ---
+      sample.xstarMxstar1 <- sample.dat
+      sample.xstarMxstar1$ses_disvt <- 1
+      pM1 <- predict(fit.mediator, newdata = sample.xstarMxstar1)
+      sample.xstarMxstar1$soc_score_lfbr_disvt <- rbinom(n, 1, expit(pM1))
+      pY1 <- predict(fit.outcome, newdata = sample.xstarMxstar1)
+      sample.xstarMxstar1$SGA <- rbinom(n, 1, expit(pY1))
+
+      # --- CF2: SES = 0 for all ---
+      sample.xstarMxstar2 <- sample.dat
+      sample.xstarMxstar2$ses_disvt <- 0
+      pM2 <- predict(fit.mediator, newdata = sample.xstarMxstar2)
+      sample.xstarMxstar2$soc_score_lfbr_disvt <- rbinom(n, 1, expit(pM2))
+      pY2 <- predict(fit.outcome, newdata = sample.xstarMxstar2)
+      sample.xstarMxstar2$SGA <- rbinom(n, 1, expit(pY2))
+
+      # --- Mediation scenario: SES fixed to 1, mediator drawn under SES=0 ---
+      sample.xstarMx <- sample.dat
+      sample.xstarMx$ses_disvt <- 1
+      sample.xstarMx$soc_score_lfbr_disvt <- sample.xstarMxstar2$soc_score_lfbr_disvt
+      pYm <- predict(fit.outcome, newdata = sample.xstarMx)
+      sample.xstarMx$SGA <- rbinom(n, 1, expit(pYm))
+
+      # Save means (column 1 = SGA, column 2 = mediator)
+      nc.array[m, 1, 1] <- mean(sample.xMx$SGA)
+      nc.array[m, 2, 1] <- mean(sample.xMx$soc_score_lfbr_disvt)
+
+      cf.array1[m, 1, 1] <- mean(sample.xstarMxstar1$SGA)
+      cf.array1[m, 2, 1] <- mean(sample.xstarMxstar1$soc_score_lfbr_disvt)
+
+      cf.array2[m, 1, 1] <- mean(sample.xstarMxstar2$SGA)
+      cf.array2[m, 2, 1] <- mean(sample.xstarMxstar2$soc_score_lfbr_disvt)
+
+      med.array[m, 1, 1] <- mean(sample.xstarMx$SGA)
+    } # end MC loop
+
+    # 4) Effects for this bootstrap (average over MC iterations)
+    for (v in 1:nvar) {
+      te.bs.array[bs, v, 1]     <- mean(cf.array2[, v, 1]) - mean(cf.array1[, v, 1])
+      te.rel.bs.array[bs, v, 1] <- 1 - (mean(cf.array2[, v, 1]) / mean(cf.array1[, v, 1]))
+    }
+
+    # NDE & NIE on the outcome (column=1)
+    bs.tde.array[bs, 1, 1] <- mean(cf.array2[, 1, 1] - med.array[, 1, 1])  # NDE
+    bs.ie.array[bs, 1, 1]  <- mean(med.array[, 1, 1]) - mean(cf.array1[, 1, 1])  # NIE
+
+    # Proportion mediated (difference scale)
+    bs.perc.med.array[bs, 1, 1] <- bs.ie.array[bs, 1, 1] / te.bs.array[bs, 1, 1]
+
+    # Save scenario means (useful for NC vs observed check)
+    for (v in 1:nvar) {
+      bs.nc.array[bs, v, 1]    <- mean(nc.array[, v, 1])
+      bs.cf.array1[bs, v, 1]   <- mean(cf.array1[, v, 1])
+      bs.cf.array2[bs, v, 1]   <- mean(cf.array2[, v, 1])
+    }
+  } # end bootstrap loop
+})
+```
+
+------------------------------------------------------------------------
+
+## 5) Results: effects and uncertainty
+
+We summarise absolute effects (difference scale) and report interquartile ranges as quick, robust uncertainty bands. For publication, consider percentile 95% CIs.
+
+```{r}
+#| label: results
+options(scipen = 999)
+
+# Scenario means (averaged over bootstraps)
+NC  <- colMeans(bs.nc.array,    dims = 2, na.rm = TRUE)
+CF1 <- colMeans(bs.cf.array1,   dims = 2, na.rm = TRUE)
+CF2 <- colMeans(bs.cf.array2,   dims = 2, na.rm = TRUE)
+
+# TE (absolute) on SGA and mediator
+te_df <- as.data.frame.matrix(apply(te.bs.array, 2, function(x) c(mean = mean(x),
+                                                                  q25 = quantile(x, 0.25),
+                                                                  q75 = quantile(x, 0.75))))
+colnames(te_df) <- c("SGA", "Soc_env")
+
+# NDE (here stored in bs.tde.array) and NIE
+nde <- as.numeric(colMeans(bs.tde.array, na.rm = TRUE))
+nde_q <- apply(bs.tde.array, 2, quantile, probs = c(0.25, 0.75), na.rm = TRUE)
+
+nie <- as.numeric(colMeans(bs.ie.array, na.rm = TRUE))
+nie_q <- apply(bs.ie.array,  2, quantile, probs = c(0.25, 0.75), na.rm = TRUE)
+
+# Proportion mediated
+pm  <- as.numeric(colMeans(bs.perc.med.array, na.rm = TRUE))
+pm_q <- apply(bs.perc.med.array, 2, quantile, probs = c(0.25, 0.75), na.rm = TRUE)
+
+list(
+  scenario_means = list(NC = NC, CF1 = CF1, CF2 = CF2),
+  TE = te_df,
+  NDE = c(mean = nde, q25 = nde_q[1], q75 = nde_q[2]),
+  NIE = c(mean = nie, q25 = nie_q[1], q75 = nie_q[2]),
+  PropMediated = c(mean = pm, q25 = pm_q[1], q75 = pm_q[2])
+)
+```
+
+> **Interpretation.** - **TE** on SGA is the absolute change in outcome prevalence if everyone moved from **SES=1** to **SES=0**. - **NDE** is the part **not** going through the mediator (difference between CF2 and the mediation scenario). - **NIE** is the part **through** the mediator (difference between mediation scenario and CF1). - **Proportion mediated** is `NIE / TE` on the difference scale.
+
+------------------------------------------------------------------------
+
+## 6) Sanity check: natural course vs observed
+
+If your models are reasonable, NC means should be close to observed means in your data.
+
+```{r}
+#| label: sanity
+obs_SGA <- mean(PRN_dummy1$SGA, na.rm = TRUE)
+obs_MED <- mean(PRN_dummy1$soc_score_lfbr_disvt, na.rm = TRUE)
+
+c(
+  Observed_SGA = obs_SGA,
+  NC_SGA       = colMeans(bs.nc.array[, 1, 1], na.rm = TRUE),
+  Observed_MED = obs_MED,
+  NC_MED       = colMeans(bs.nc.array[, 2, 1], na.rm = TRUE)
+)
+```
+
+> If NC and observed are far apart, revisit model forms (missing confounders? interactions? coding?).
+
+------------------------------------------------------------------------
+
+## 7) Tips for practice
+
+-   **Stability**: Increase `params$msize` (MC draws) and `params$bssize` (bootstrap replicates).
+-   **Clusters**: If you have neighborhood or practice clusters, keep `POSTCODE.FIN` (or your cluster id) and the cluster resample will account for them.
+-   **Reporting**: Present both absolute differences (pp) and relative changes (e.g., `1 − CF2/CF1`).
+-   **Reproducibility**: Log your R session and seed; store scenario means alongside effects.
+
+```{r}
+#| label: session-info
+sessionInfo()
+```
+
+------------------------------------------------------------------------
+
+### Appendix: Save results (optional)
+
+```{r}
+#| label: save
+# save(bs.nc.array, te.bs.array, te.rel.bs.array, bs.tde.array, bs.ie.array, bs.perc.med.array,
+#      bs.cf.array1, bs.cf.array2, file = "gformula_results.RData")
+```
