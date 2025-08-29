@@ -1,5 +1,8 @@
 # A step-by-step guide for causal mediation analysis with the G-computation (Tutorial Repository)
 
+Cite as: <a href="https://doi.org/10.5281/zenodo.16995100"><img src="https://zenodo.org/badge/528349944.svg" alt="DOI"></a>
+
+
 This repository contains guidance for performing causal mediation analysis (CMA) with the mediational g-formula (g-computation) in R.
 The workflow follows the approach described in: Burgos-Ochoa (2023) https://doi.org/10.1111/ppe.12954 
 
