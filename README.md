@@ -1,6 +1,6 @@
 # A step-by-step guide for causal mediation analysis with the G-computation (Tutorial Repository)
 
-This repository contains a hands-on tutorial for performing causal mediation analysis (CMA) with the mediational g-formula (g-computation) in R.
+This repository contains guidance for performing causal mediation analysis (CMA) with the mediational g-formula (g-computation) in R.
 The workflow follows the approach described in: Burgos-Ochoa (2023) https://doi.org/10.1111/ppe.12954 
 
 ## What’s in this repository
