@@ -14,7 +14,7 @@ The files are:
  [CMA_gformula_tutorial.Rmd](https://github.com/LizBurgosOchoa/Illustration-G-formula/blob/main/CMA_gformula_tutorial.Rmd)
 An R Markdown notebook with step-by-step guidance, explanations, and code. Use this if you want a structured tutorial that explains each step (natural course, counterfactuals, mediation scenario, TE/NDE/NIE, bootstrap).
 
-[G-formula_BigData_Special_Issue.R] (https://github.com/LizBurgosOchoa/Illustration-G-formula/blob/main/G-formula_BigData_Special_Issue.R)
+[G-formula_BigData_Special_Issue.R](https://github.com/LizBurgosOchoa/Illustration-G-formula/blob/main/G-formula_BigData_Special_Issue.R)
 A plain R script with the same code, but without explanatory text. Use this if you only want the implementation.
 
 ## Who it’s for
