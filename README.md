@@ -2,12 +2,14 @@
 
 Cite as: <a href="https://doi.org/10.5281/zenodo.16995100"><img src="https://zenodo.org/badge/528349944.svg" alt="DOI"></a>
 
-**Note:** This repository was created in September 2022 and is periodically updated to ensure compatibility with the latest versions of R packages.
+**Note:** This repository was created in **September 2022** and is periodically updated to ensure compatibility with the latest versions of R packages.
+
+## What’s in this repository
 
 This repository contains guidance for performing causal mediation analysis (CMA) with the mediational g-formula (g-computation) in R.
 The workflow follows the approach described in: Burgos-Ochoa (2023) https://doi.org/10.1111/ppe.12954 
 
-## What’s in this repository
+The files are:
 
 CMA_gformula_tutorial.Rmd
 An R Markdown notebook with step-by-step guidance, explanations, and code. Use this if you want a structured tutorial that explains each step (natural course, counterfactuals, mediation scenario, TE/NDE/NIE, bootstrap).
